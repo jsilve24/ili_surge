@@ -714,8 +714,9 @@ tmp %>%
   write_csv("new_confirmed_divided_by_excess_ili.csv")
 
 tmp %>% 
+  filter(date >= ymd("2020-03-01")) %>% 
   mutate(State = REGION) %>% 
-ggplot(aes(y=NewCasesWeek/p50, x=date, color=State, fill=State)) +
+  ggplot(aes(y=NewCasesWeek/p50, x=date, color=State, fill=State)) +
   geom_ribbon(aes(ymin=NewCasesWeek/p2.5, ymax=NewCasesWeek/p97.5), linetype=0, alpha=0.1)+
   geom_ribbon(aes(ymin=NewCasesWeek/p25, ymax=NewCasesWeek/p75), linetype=0, alpha=0.3)+
   geom_path() +
@@ -761,7 +762,7 @@ tmp %>%
   theme_bw() +
   theme(axis.text.x=element_text(angle=90, hjust=1), 
         axis.title.x=element_blank()) +
-  ylab("Testing Detection Rate") +
+  ylab("Symptomatic Case Detection Rate") +
   scale_y_log10(labels = function(x) sprintf("%g", x))
 ggsave("excess_ili_vs_case_counts_latest.pdf", height=7, width=7, units="in")
 
