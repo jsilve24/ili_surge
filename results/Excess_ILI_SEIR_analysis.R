@@ -6,11 +6,11 @@ library(ggplot2)
 library(ggpubr)
 library(zoo)
 
-US_seir_forecasts <- readRDS('RDS/US_seir_forecasts_unif_2_7.Rd')
+US_seir_forecasts <- readRDS('data/US_seir_forecasts_unif_2_7.Rd')
 setkey(US_seir_forecasts,replicate,date)
 ## We need to rollapply a sum for every week to capture weekly ILI
 US_seir_forecasts[,weekly_I:=rollapply(I,sum,fill=NA,align='left',w=7),by=replicate]
-saveRDS(US_seir_forecasts,'RDS/US_seir_forecasts_unif_weekly.Rd')
+saveRDS(US_seir_forecasts,'data/US_seir_forecasts_unif_weekly.Rd')
 
 ILI <- read.csv('data/number_excess_ili_cases.csv',stringsAsFactors = F) %>% as.data.table
 ILI[,week:=as.Date(week)]
@@ -30,16 +30,15 @@ gc()
 
 
 # Calculating Clinical Rates -----------------------------------------------------
-clinical_rate_calculator <- function(week='latest',method='gam',
+clinical_rate_calculator <- function(week='2020-03-15',method='gam',
                                      start_date='2020-01-15',time_onset_to_doc=0){
-  ILI <- read.csv('data/posterior_samples_us_weekly_I.csv',stringsAsFactors = F) %>% as.data.table
-  ILI <- read.csv('data/')
+  ILI <- read.csv('data/US_total_weekly_excess_ili_no_mizumoto.csv',stringsAsFactors = F) %>% as.data.table
   ILI[,week:=as.Date(date)]
   
   if (week=='latest'){
     wk<- max(ILI$week,na.rm=T)
   } else {
-    wk <- week
+    wk <- as.Date(week)
   }
   
   if (class(start_date)!='Date'){
@@ -51,9 +50,9 @@ clinical_rate_calculator <- function(week='latest',method='gam',
   # } else { #median
   #   Excess_ILI <- ILI[week==wk,(Excess_ILI=sum(p50,na.rm=T))]
   # }
-  Excess_ILI <- mean(ILI[week==wk]$weekly_I)
+  Excess_ILI <- mean(ILI[week==wk]$mean)
   
-  US_seir_forecasts <- readRDS('RDS/US_seir_forecasts_unif_weekly.Rd')
+  US_seir_forecasts <- readRDS('data/US_seir_forecasts_unif_weekly.Rd')
   setkey(US_seir_forecasts,replicate,date)
   date_shift = as.numeric(min(US_seir_forecasts$date)-start_date)
   US_seir_forecasts[,date:=shift(date,type='lead',n=date_shift),by=replicate]
@@ -122,19 +121,20 @@ ggsave('figures/Clinical_rate_v_Doubling_time_by_delay_transparent.png',height=8
 # Comparing ILI to US forecasts -------------------------------------------
 
 ##### load ILI data
+## these data have a mizumoto 17.9% asymptomatic correction
 ILI <- read.csv('data/number_excess_ili_cases.csv',stringsAsFactors = F) %>% as.data.table
 ILI[,week:=as.Date(week)] 
 
 ##### Merge probabilities with US SEIR forecasts
 weights <- read.csv('data/distribution_over_replicates.csv') %>% as.data.table
-US <- readRDS('RDS/US_seir_forecasts_unif_weekly.Rd')
+US <- readRDS('data/US_seir_forecasts_unif_weekly.Rd')
 setkey(weights,replicate)
 setkey(US,replicate)
 US <- US[weights]
 #### compute doubling time
 US[,DoublingTime:=log(2)/GrowthRate]
 
-##### posterior samples - will use to visualize mean ILI vs. Forecasts
+##### posterior samples w/ mizumoto correction - will use to visualize mean ILI vs. Forecasts
 ili <- read.csv('data/posterior_samples_us_weekly_I.csv') %>% as.data.table
 ili[,date:=as.Date(date)-4]
 ili <- ili[,list(weekly_I=mean(weekly_I),
@@ -219,12 +219,9 @@ ggsave('figures/Clinical_rate_estimation.png',height=12,width=10,units='in')
 
 # Clinical Rate of avg growth rate ----------------------------------------
 
-r=US[,weighted.mean(GrowthRate,probability)] ## probability-weighted avg growth rate
-r_state_median <- log(2)/2.455
-r_deaths <- log(2)/2.52
+r_deaths <- 2.955883
 CR <- clinical_rate_calculator(time_onset_to_doc = 4)  ## assume 4-day lag from onset of infectiousness to doc visit
-CR$fit %>% predict(newdata=data.frame('GrowthRate'=r_state_median)) %>% exp   ## clinical rate for state growths
-CR$fit %>% predict(newdata=data.frame('GrowthRate'=r_deaths)) %>% exp   ## clinical rate for rate of growth of COVID deaths
+CR$fit %>% predict(newdata=data.frame('GrowthRate'=r_deaths)) %>% exp   ## clinical rate for state growths
 
 
 
