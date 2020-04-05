@@ -33,6 +33,7 @@ gc()
 clinical_rate_calculator <- function(week='latest',method='gam',
                                      start_date='2020-01-15',time_onset_to_doc=0){
   ILI <- read.csv('data/posterior_samples_us_weekly_I.csv',stringsAsFactors = F) %>% as.data.table
+  ILI <- read.csv('data/')
   ILI[,week:=as.Date(date)]
   
   if (week=='latest'){
@@ -224,3 +225,69 @@ r_deaths <- log(2)/2.52
 CR <- clinical_rate_calculator(time_onset_to_doc = 4)  ## assume 4-day lag from onset of infectiousness to doc visit
 CR$fit %>% predict(newdata=data.frame('GrowthRate'=r_state_median)) %>% exp   ## clinical rate for state growths
 CR$fit %>% predict(newdata=data.frame('GrowthRate'=r_deaths)) %>% exp   ## clinical rate for rate of growth of COVID deaths
+
+
+
+# CFR estimation ----------------------------------------------------------
+
+D <- read.csv('data/covid-19-data/time_series_covid19_deaths_US_JH.csv',stringsAsFactors = F) %>% as.data.table
+D <- D[Country_Region=='US']
+obs <- grepl('20',colnames(D))
+dts <- colnames(D)[obs] %>% gsub('X','',.) %>% as.Date(.,format='%m.%d.%y')
+
+
+Deaths <- data.table('date'=dts,
+                     'deaths'=colSums(D[,obs,with=F]))
+Deaths <- rbind(data.table('date'=seq(as.Date('2020-01-15'),min(Deaths$date-1),by='day'),
+                           'deaths'=0),Deaths)
+Deaths[,deaths:=c(diff(deaths),NA)]
+
+ggplot(Deaths[date>as.Date('2020-03-01')],aes(date,deaths))+
+  geom_point()+
+  scale_y_continuous(trans='log',breaks=10^(0:4))
+
+fit <- glm(deaths~date,family=poisson,data=Deaths[date>as.Date('2020-03-04')])
+d_death <- function(x,fit.=fit) dnorm(x,mean = fit$coefficients[2],sd=sqrt(vcov(fit)[4]))
+r_death <- coef(fit)[2]
+
+
+lag=27
+Deaths[deaths==0,deaths:=NA]
+Deaths[,lagged_deaths:=shift(deaths,n=lag,type='lead')]
+setkey(Deaths,date)
+setkey(US,date)
+
+X <- US[Deaths]
+
+get_coef <- function(y,x){
+}
+
+setkey(X,replicate,date)
+X[,cfr:=coef(glm(y~x+0,data=data.frame('y'=lagged_deaths,'x'=I))),by=replicate]
+
+
+X[,prob_curve:=d_death(GrowthRate)]
+
+
+trajectory_summaries <- X[,list(cfr=unique(cfr),
+                                GrowthRate=unique(GrowthRate),
+                                prob_curve=unique(prob_curve),
+                                max_R=max(R)),by=replicate]
+
+cfr_distribution <- sample(trajectory_summaries$cfr,size=1e4,prob=trajectory_summaries$prob_curve,replace=T)
+trajectory_summaries[,weighted.mean(cfr,prob_curve)]
+
+summary(cfr_distribution)
+hist(log(cfr_distribution))
+
+
+set.seed(1)
+plotted_reps <- c(trajectory_summaries[,sample(replicate,size=8e2,prob = prob_curve,replace=F)]) %>% unique
+ggplot(X[replicate %in% plotted_reps],aes(date,I,alpha=prob_curve,by=factor(replicate)))+
+  geom_line()+
+  geom_line(aes(date,lagged_deaths),col='red')+
+  geom_point(aes(date,lagged_deaths),col='red',cex=3)+
+  scale_y_continuous(trans='log',breaks=10^(0:10))+
+  scale_alpha_continuous(range=c(0.01,0.7))+
+  theme_bw()+
+  theme(legend.position = 'none')
