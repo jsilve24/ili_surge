@@ -685,7 +685,7 @@ tmp %>%
   geom_path() +
   geom_point() +
   #ylab("Probability of SARS-CoV2 detection given patient has ILI due to SARS-CoV2") +
-  ylab("Symptomatic Case Detection Rate") +
+  ylab("Syndromic Case Detection Rate") +
   theme_bw() +
   scale_x_date(date_breaks="week", limits = c(ymd("2020-01-19"), max(CDC_date[test_idxs]))) +
   theme(axis.text.x = element_text(angle=90, hjust=1), 
@@ -727,7 +727,7 @@ tmp %>%
   theme_bw() +
   theme(axis.text.x=element_text(angle=90, hjust=1), 
         axis.title.x=element_blank()) +
-  ylab("Symptomatic Case Detection Rate") +
+  ylab("Syndromic Case Detection Rate") +
   scale_y_log10(labels = function(x) sprintf("%g", x))
 ggsave("figures/excess_ili_vs_case_counts_latest.pdf", height=7, width=7, units="in")
 
@@ -759,7 +759,14 @@ tmp <- Y_ncov_full_scaled %>%
 tmp %>% group_by(date) %>% summarise_posterior(us_val)
 
 # Number of newly infected
-tmp %>% mutate(us_val = us_val/(1-delta_b)) %>% group_by(date) %>% summarise_posterior(us_val)
+tmp %>% mutate(us_val = us_val/(1-delta_b)) %>% group_by(date) %>% summarise_posterior(us_val) %>% 
+  pull(p50) %>% sum()
+
+# Total number infected 
+tmp %>% mutate(us_val = us_val/(1-delta_b)) %>% 
+  group_by(iter) %>% 
+  summarise(us_val = sum(us_val)) %>% 
+  summarise_posterior(us_val)
 
 total_new_cases <- sum(filter(us_new_confirmed_tidy, CDC_week==14)[["NewCasesWeek"]])
 tmp %>% 
