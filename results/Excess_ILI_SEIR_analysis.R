@@ -19,7 +19,7 @@ US_seir_forecasts[date %in% setdiff(unique(ILI$week),NA)][!is.na(weekly_I),c('re
   write.csv('data/weekly_I_across_replicates.csv')
 
 US_seir_forecasts[,date:=shift(date,4,type='lead'),by=replicate]
-US_seir_forecasts[date %in% setdiff(unique(ILI$week),NA)][!is.na(weekly_I),c('replicate','date','weekly_I')] %>%
+US_seir_forecasts[date>=as.Date('2020-03-01') & date<as.Date('2020-04-01')][!is.na(weekly_I),c('replicate','date','weekly_I')] %>%
   write.csv('data/weekly_I_across_replicates_4d_lag.csv')
 
 rm(list=ls())
@@ -136,8 +136,9 @@ US[,DoublingTime:=log(2)/GrowthRate]
 
 ##### posterior samples w/ mizumoto correction - will use to visualize mean ILI vs. Forecasts
 ili <- read.csv('data/posterior_samples_us_weekly_I.csv') %>% as.data.table
-ili[,date:=as.Date(date)-4]
+ili[,date:=as.Date(date)]
 ili <- ili[,list(weekly_I=mean(weekly_I),
+                 sd=sd(weekly_I),
           replicate=unique(as.numeric(date))+14000,
           DoublingTime=2.9,
           probability=max(US$probability)),by=date]
@@ -165,7 +166,7 @@ replicates <- c(unique(US[probability>0,replicate]),
 
 r_set <- unique(US$GrowthRate)
 r_slow <- log(2)/3.5
-r_fast <- log(2)/1.91
+r_fast <- log(2)/2.1
 
 rep_slow <- unique(US$replicate)[order(abs(r_slow-r_set))]
 rep_fast <- unique(US$replicate)[order(abs(r_fast-r_set))]
@@ -219,11 +220,10 @@ ggsave('figures/Clinical_rate_estimation.png',height=12,width=10,units='in')
 
 # Clinical Rate of avg growth rate ----------------------------------------
 
-r_deaths <- 2.955883
+r_deaths <- 0.2344975
 CR <- clinical_rate_calculator(time_onset_to_doc = 4)  ## assume 4-day lag from onset of infectiousness to doc visit
 CR$fit %>% predict(newdata=data.frame('GrowthRate'=r_deaths)) %>% exp   ## clinical rate for state growths
-
-
+# 0.2977442 
 
 # CFR estimation ----------------------------------------------------------
 
