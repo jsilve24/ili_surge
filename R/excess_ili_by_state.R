@@ -438,7 +438,6 @@ Y_ncov_summary_tidy  %>%
   write_csv("results/ncov_signal_extraction.csv")
 
 
-
 Y_ncov_full_scaled_summary %>% 
   bind_rows(.,.id="REGION") %>% 
   ungroup() %>% 
@@ -656,6 +655,8 @@ p2 <- baz %>%
 ggsave("figures/ili_admission_rate.pdf", plot=p2, height=4, width=7)
 rm(baz)
 
+
+
 p <- ggarrange(p1, p2, nrow=2, labels = c("A", "B"), heights=c(1, .7))
 ggsave("figures/ili_admissions_and_correlation.pdf", plot=p,  height=6, width=6, units="in")
 
@@ -732,11 +733,24 @@ tmp %>%
 ggsave("figures/excess_ili_vs_case_counts_latest.pdf", height=7, width=7, units="in")
 
 
-# Compare with Alex's Simlulations ----------------------------------------
+# Try accounting for changing patient behavior ----------------------------
 
-sims <- read_csv("results/weekly_I_across_replicates_4d_lag.csv") %>% 
-  select(-X1) %>% 
-  filter(date >= ymd("2020-03-08"))
+scaling_admissions <-  ili_admit %>% 
+  select(date, admit_rate) %>% 
+  filter(date >= ymd("2020-03-01")) %>% 
+  mutate(week = floor(as.integer(date - ymd("2020-03-08"))/7) + 1) %>% 
+  group_by(week) %>% 
+  mutate(mean_admit_rate = exp(mean(log(admit_rate)))) %>% 
+  filter(row_number()==1) %>% 
+  filter(date <= max(CDC_date)) %>%
+  ungroup() %>% 
+  select(date, mean_admit_rate) %>% 
+  deframe(  )
+scaling_admissions <- scaling_admissions[-1]/scaling_admissions[1]
+
+write_csv(enframe(scaling_admissions, "date", "scaling_factor"), path="results/scaling_admission_rates.csv")
+
+# Compare with Alex's Simlulations ----------------------------------------
 
 # Quantile match a beta distribution to mizumoto estimates
 quantile_match_beta <- function(pars){ 
@@ -785,6 +799,26 @@ Y_ncov_full_scaled %>%
   summarise_posterior(us_val) %>% 
   write_csv("results/US_total_weekly_excess_ili_no_mizumoto.csv")
 
+
+
+
+
+# working with alex's simulations -----------------------------------------
+
+sims <- read_csv("results/weekly_I_across_replicates_4d_lag.csv") %>% 
+  select(-X1) %>% 
+  filter(date >= ymd("2020-03-08"))
+
+
+
+tmp <- Y_ncov_full_scaled %>%
+  map(~mutate(.x, date = CDC_date[test_idxs][date])) %>%
+  bind_rows(.id="State") %>%
+  filter(date >= ymd("2020-03-08")) %>%
+  group_by(date, iter) %>%
+  summarize(us_val = sum(val),
+            delta_b = rbeta(1, exp(res$par[1]), exp(res$par[2]))) %>%
+  ungroup()
 
 tmp <- tmp %>% 
   mutate(us_val = us_val/(1-delta_b))
