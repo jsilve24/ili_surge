@@ -175,24 +175,6 @@ for (i in 1:nrow(ili_select)){
   scale_factor[ili_select$REGION[i], ili_select$flu_week[i],] <- tmp
 }
 
-# Kernel Functions I tried but found provided no real improvement over the Squared Exponential (SE) Kernel 
-# #  Custom Kernel Functions -------------------------------------
-# 
-# # # Just like basset but optimizes over unknown kernel scaling fact
-# 
-# # Rational Quadratic Kernel
-# RQ <- function(X, alpha, sigma=1, rho=median(as.matrix(dist(t(X)))), jitter=1e-10){
-#   dist <- as.matrix(dist(t(X)))
-#   G <- sigma^2 * (1+ dist^2/(2*alpha*rho^2))^(-alpha) + jitter*diag(ncol(dist))
-#   return(G)
-# }
-# EXPONENTIAL <- function(X, sigma=1, rho=median(as.matrix(dist(t(X)))), jitter=1e-10){
-#   dist <- as.matrix(dist(t(X)))
-#   G <- sigma^2 * exp(-dist/rho)+jitter*diag(ncol(dist))
-#   return(G)
-# }
-
-
 # impute missing flu data -------------------------------------------------
 
 
@@ -441,7 +423,7 @@ Y_ncov_summary_tidy  %>%
 Y_ncov_full_scaled_summary %>% 
   bind_rows(.,.id="REGION") %>% 
   ungroup() %>% 
-  filter(p.positive > .95) %>% 
+  #filter(p.positive > .95) %>% 
   #mutate(week = X_test[1,X_index_for_test][date]) %>% 
   mutate(week = date) %>% 
   group_by(REGION) %>% 
@@ -571,7 +553,7 @@ us_new_confirmed_tidy <- us_confirmed_tidy %>%
 tmp <- Y_ncov_full_scaled_summary %>% 
   bind_rows(.,.id="REGION") %>% 
   ungroup() %>% 
-  filter(p.positive > .95) %>% 
+  #filter(p.positive > .95) %>% 
   #mutate(week = X_test[1,X_index_for_test][date]) %>% 
   mutate(week = date) %>% 
   group_by(REGION) %>% 
@@ -612,18 +594,20 @@ p1 <- Y_ncov_full_scaled_summary %>%
   mutate(date = CDC_date[test_idxs][week]) %>%
   filter(date >= ymd("2020-03-1")) %>% 
   left_join(us_new_confirmed_tidy, by=c("REGION", "date")) %>% 
-  ggplot(aes(y=p50, x=NewCasesWeek)) +
-  geom_linerange(aes(ymin=p2.5, ymax=p97.5),  size=2, alpha=0.5, color="grey") +
-  geom_linerange(aes(ymin=p25, ymax=p75),  size=2, alpha=0.8, color="grey") +
-  geom_point() +
-  stat_cor(label.x=.5, label.y=7) +
-  geom_smooth(method="lm") +
+  mutate(Population = pop[REGION]) %>%
+  ggplot(aes(y=p50/Population, x=NewCasesWeek/Population)) +
+  # geom_linerange(aes(ymin=p2.5/population, ymax=p97.5/population),  size=2, alpha=0.5, color="grey") +
+  # geom_linerange(aes(ymin=p25/population, ymax=p75/population),  size=2, alpha=0.8, color="grey") +
+  geom_point(color="darkgrey", alpha=0.6) +
+  stat_cor(show.legend = FALSE, size=3) +
+  geom_smooth(method="lm", show.legend = FALSE) +
   scale_x_log10() +
   scale_y_log10() +
   facet_wrap(~date) +
   theme_bw() +
-  xlab("New COVID Cases") +
-  ylab("Non-Influenza ILI\nin Excess of Seasonal Norms")
+  guides(label=FALSE) +
+  xlab("New COVID Cases (Per Capita)") +
+  ylab("Non-Influenza ILI in Excess\nof Seasonal Norms (Per Capita)")
 ggsave("figures/correlation_covid_excess_ili_by_week.pdf", plot=p1, height=5, width=10)
 #ggsave("correlation_covid_excess_ili_by_week.png", height=5, width=10)
 
@@ -678,10 +662,22 @@ tmp %>%
   write_csv("results/new_confirmed_divided_by_excess_ili.csv")
 
 tmp %>% 
+  mutate(p2.5 = NewCasesWeek/p2.5, 
+         p25 = NewCasesWeek/p25, 
+         p50 = NewCasesWeek/p50, 
+         p75 = NewCasesWeek/p75, 
+         p97.5 = NewCasesWeek/p97.5) %>% 
+  select(-mean) %>% 
+  arrange(REGION, date) %>% 
+  filter(p50 !=0) %>% 
+  pull(p50) %>% 
+  mean()
+
+tmp %>% 
   filter(date >= ymd("2020-03-01")) %>% 
   mutate(State = REGION) %>% 
   ggplot(aes(y=NewCasesWeek/p50, x=date, color=State, fill=State)) +
-  geom_ribbon(aes(ymin=NewCasesWeek/p2.5, ymax=NewCasesWeek/p97.5), linetype=0, alpha=0.1)+
+  #geom_ribbon(aes(ymin=NewCasesWeek/p2.5, ymax=NewCasesWeek/p97.5), linetype=0, alpha=0.1)+
   geom_ribbon(aes(ymin=NewCasesWeek/p25, ymax=NewCasesWeek/p75), linetype=0, alpha=0.3)+
   geom_path() +
   geom_point() +
