@@ -91,8 +91,6 @@ names(tmp) <- pop$State
 pop <- tmp
 rm(tmp)
 
-
-
 # Prep data for analysis --------------------------------------------------
 
 # Subset to just states in ILI
@@ -167,13 +165,47 @@ D100K <- D100K[names(pop)]
 D <- D100K*pop/1e5
 #D["District of Columbia"] <- 453
 
+
+### Old Scale Factors based on number of providers reported by CDC in ILINet
 #scale_factor <- matrix(NA, length(regions_to_model), max(ili_select$flu_week))
+# scale_factor <- array(NA, dim=c(length(regions_to_model), max(ili_select$flu_week), 4000))
+# rownames(scale_factor) <- regions_to_model
+# for (i in 1:nrow(ili_select)){
+#   tmp <- rpois(4000, ili_select[["TOTAL PATIENTS"]][i] / ili_select[["NUM. OF PROVIDERS"]][i]) * D[ili_select$REGION[i]]
+#   scale_factor[ili_select$REGION[i], ili_select$flu_week[i],] <- tmp
+# }
+# 
+# scale_factor %>%  apply(3, function(X) colSums(X, na.rm=TRUE)) %>% colMeans %>% summary
+
+ ### New Scale Factors
+ 
+# Quantile match a beta distribution to physicianfoundation.org data
+# quantile_match_gamma<- function(pars){
+#   pars <- exp(pars)
+#   ps <- c(18.1, 40.0, 27.6, 8.6, 2.6, 1.3, 1.8)/100
+#   qs <- cumsum(ps)
+#   qs <- qgamma(qs, pars[1], pars[2])
+#   abs(qs[1] - 10) + abs(qs[2] - 20) + abs(qs[3] - 30) + abs(qs[4] - 40) +
+#     abs(qs[5] - 50) + abs(qs[6] - 60)
+# }
+# res <- optim(c(5,1), quantile_match_gamma)
+# pars <- exp(res$par)
+# rgamma(10000, pars[1], pars[2]) %>% ecdf %>% plot ## Looks good
+# rgamma(10000, pars[1], pars[2]) %>% mean()
+physician_activity_rate = 0.55
 scale_factor <- array(NA, dim=c(length(regions_to_model), max(ili_select$flu_week), 4000))
 rownames(scale_factor) <- regions_to_model
 for (i in 1:nrow(ili_select)){
-  tmp <- rpois(4000, ili_select[["TOTAL PATIENTS"]][i] / ili_select[["NUM. OF PROVIDERS"]][i]) * D[ili_select$REGION[i]] 
+  tmp <- rep(20.2, 4000)*D[ili_select$REGION[i]]*5*physician_activity_rate # Assume 5 day work weeks
   scale_factor[ili_select$REGION[i], ili_select$flu_week[i],] <- tmp
 }
+scale_factor %>%  apply(3, function(X) colSums(X, na.rm=TRUE)) %>% colMeans %>% summary
+
+
+# 1.3 billion doctors visits in 49 weeks of the year. 
+# 55% of licenced physicisans working -- alignment with number of physicians in the US
+# number of patients seen by physicians per day
+
 
 # impute missing flu data -------------------------------------------------
 
@@ -762,18 +794,37 @@ tmp <- Y_ncov_full_scaled %>%
   filter(date >= ymd("2020-03-08")) %>%
   group_by(date, iter) %>%
   summarize(us_val = sum(val),
-            delta_b = rbeta(1, exp(res$par[1]), exp(res$par[2]))) %>%
+            delta_b = rbeta(1, exp(res$par[1]), exp(res$par[2])), 
+            delta_c = .60) %>% # 70% don't show up to doctor
   ungroup()
+
+
+# Number excess per state per week 
+Y_ncov_full_scaled %>%
+  map(~mutate(.x, date = CDC_date[test_idxs][date])) %>%
+  bind_rows(.id="State") %>%
+  filter(date >= ymd("2020-03-08")) %>% 
+  group_by(State, date) %>% 
+  summarize(mean=mean(val)) %>% 
+  ungroup() %>% 
+  mutate(pop = pop[State]) %>% 
+  mutate(greater = pop < mean)
 
 # Number of excess ILI cases
 tmp %>% group_by(date) %>% summarise_posterior(us_val)
 
+tmp %>% 
+  group_by(iter) %>% 
+  summarise(us_val = sum(us_val)) %>% 
+  ungroup() %>% 
+  summarise_posterior(us_val)
+
 # Number of newly infected
-tmp %>% mutate(us_val = us_val/(1-delta_b)) %>% group_by(date) %>% summarise_posterior(us_val) %>% 
+tmp %>% mutate(us_val = us_val/((1-delta_b)*(1-delta_c))) %>% group_by(date) %>% summarise_posterior(us_val) %>% 
   pull(p50) %>% sum()
 
 # Total number infected 
-tmp %>% mutate(us_val = us_val/(1-delta_b)) %>% 
+tmp %>% mutate(us_val = us_val/((1-delta_b)*(1-delta_c))) %>% 
   group_by(iter) %>% 
   summarise(us_val = sum(us_val)) %>% 
   summarise_posterior(us_val)
