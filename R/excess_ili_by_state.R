@@ -810,9 +810,39 @@ Y_ncov_full_scaled %>%
   mutate(pop = pop[State]) %>% 
   mutate(greater = pop < mean)
 
-# Number of excess ILI cases
-tmp %>% group_by(date) %>% summarise_posterior(us_val)
+# For alex - number of excess ILI no filtering by date
+# Y_ncov_full_scaled %>% 
+#   map(~mutate(.x, date = CDC_date[test_idxs][date])) %>% 
+#   bind_rows(.id="State") %>% 
+#   group_by(date, iter) %>% 
+#   summarize(us_val = sum(val), 
+#             delta_b = rbeta(1, exp(res$par[1]), exp(res$par[2]))) %>% 
+#   ungroup() %>% 
+#   group_by(date) %>% 
+#   summarise_posterior(us_val) %>% 
+  
 
+# Number of excess ILI cases
+tmp %>% group_by(date) %>% summarise_posterior(us_val) %>% 
+  write_csv("results/US_total_weekly_excess_ili_no_subclinical.csv")
+
+# Number of new infections, with subclinical
+tmp %>% 
+  mutate(us_val = us_val/((1-delta_b)*(1-delta_c) )) %>% 
+  group_by(date) %>% 
+  summarise_posterior(us_val) %>% 
+  write_csv("results/US_total_weekly_excess_ili_with_subclinical.csv")
+
+# Number of new infections, with subclinical
+tmp %>% 
+  mutate(us_val = us_val/((1-delta_b)*(1-delta_c) )) %>% 
+  left_join(mutate(enframe(scaling_admissions, "date", "sf"), date=ymd(date)), by="date") %>% 
+  mutate(us_val = us_val * sf) %>% 
+  group_by(date) %>% 
+  summarise_posterior(us_val) %>% 
+  write_csv("results/US_total_weekly_excess_ili_with_subclinical_with_behavior.csv")
+
+# Excess ILI over those three weeks
 tmp %>% 
   group_by(iter) %>% 
   summarise(us_val = sum(us_val)) %>% 
@@ -834,17 +864,6 @@ tmp %>%
   mutate(detection_rate = total_new_cases/us_val) %>% 
   summarise_posterior(detection_rate)
 
-# For alex - number of excess ILI no filtering by date
-Y_ncov_full_scaled %>% 
-  map(~mutate(.x, date = CDC_date[test_idxs][date])) %>% 
-  bind_rows(.id="State") %>% 
-  group_by(date, iter) %>% 
-  summarize(us_val = sum(val), 
-            delta_b = rbeta(1, exp(res$par[1]), exp(res$par[2]))) %>% 
-  ungroup() %>% 
-  group_by(date) %>% 
-  summarise_posterior(us_val) %>% 
-  write_csv("results/US_total_weekly_excess_ili_no_mizumoto.csv")
 
 
 
