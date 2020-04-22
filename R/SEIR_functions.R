@@ -1,5 +1,6 @@
 library(data.table)
 library(deSolve)
+library(magrittr)
 SEIRD <- function(t,state,parameters){
   with(as.list(c(state,parameters)),{
     dS=lambda-beta*S*I-m*S
