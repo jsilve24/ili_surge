@@ -671,8 +671,6 @@ p2 <- baz %>%
 ggsave("figures/ili_admission_rate.pdf", plot=p2, height=4, width=7)
 rm(baz)
 
-
-
 p <- ggarrange(p1, p2, nrow=2, labels = c("A", "B"), heights=c(1, .7))
 ggsave("figures/ili_admissions_and_correlation.pdf", plot=p,  height=6, width=6, units="in")
 
@@ -810,17 +808,47 @@ Y_ncov_full_scaled %>%
   mutate(pop = pop[State]) %>% 
   mutate(greater = pop < mean)
 
-# For alex - number of excess ILI no filtering by date
-# Y_ncov_full_scaled %>% 
-#   map(~mutate(.x, date = CDC_date[test_idxs][date])) %>% 
-#   bind_rows(.id="State") %>% 
-#   group_by(date, iter) %>% 
-#   summarize(us_val = sum(val), 
-#             delta_b = rbeta(1, exp(res$par[1]), exp(res$par[2]))) %>% 
-#   ungroup() %>% 
-#   group_by(date) %>% 
-#   summarise_posterior(us_val) %>% 
+# Prevalance estimates by state
+foo <- Y_ncov_full_scaled %>%
+  map(~mutate(.x, date = CDC_date[test_idxs][date])) %>%
+  bind_rows(.id="State") %>%
+  filter(date >= ymd("2020-03-08")) %>%
+  group_by(State, iter) %>%
+  summarize(val = sum(val),
+            delta_b = rbeta(1, exp(res$par[1]), exp(res$par[2])), 
+            delta_c = .60) %>% # 60% don't show up to doctor
+  ungroup() %>% 
+  mutate(val = val/((1-delta_b)*(1-delta_c) )) %>% 
+  mutate(pop = pop[State]) %>% 
+  mutate(val = val/pop*100) %>% 
+  group_by(State) %>% 
+  summarise_posterior(val) 
+foo <- us_new_confirmed_tidy %>% 
+  filter(date >=ymd("2020-03-08")) %>% 
+  group_by(State) %>% 
+  summarise(cases = sum(NewCasesWeek)) %>% 
+  mutate(pop = pop[State]) %>% 
+  mutate(cases = cases/pop*100) %>% 
+  right_join(foo, by="State")
+foo$State <- factor(foo$State, levels=foo$State[order(foo$p50, decreasing = FALSE)])
+p <- foo %>% 
+  mutate(p2.5 = pmax(p2.5, cases)) %>% 
+  select(State, p2.5, p50, p97.5, cases) %>% 
+  ggplot(aes(x=p50, y=State))+
+  geom_point() +
+  geom_linerange(aes(xmin=p2.5, xmax=p97.5)) +
+  geom_point(aes(x=cases), color="darkgrey", alpha=0.6) +
+  #coord_cartesian(xlim=c(0, NA)) +
+  theme_bw() +
+  scale_x_sqrt() +
+  xlab("Percentage of State Population Infected\nBetween March 8 to March 28, 2020") +
+  theme(axis.title.y=element_blank()) 
+ggsave("figures/PrevalanceEstimatesStates.pdf", plot=p, height=8, width=5, units="in")
   
+p + ggtitle("ILI based SARS-CoV-2 Prevalence Estimates", "estimates from confirmed case counts in grey")
+ggsave("figures/PrevalanceEstimatesStates_twitter.png", height=8, width=5, units="in")
+
+
 
 # Number of excess ILI cases
 tmp %>% group_by(date) %>% summarise_posterior(us_val) %>% 
