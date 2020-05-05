@@ -10,7 +10,7 @@ library(ggpubr)
 set.seed(599291)
 
 # Here we lump NYC in with NY state as I could not find primary care provider number for the city in isolation. 
-# I also define my own variable "flu_week" which starts on CDC Week 30 and goes to the end of hte year -- this was just a 
+# I also define my own variable "flu_week" which starts on CDC Week 30 and goes to the end of the year -- this was just a 
 # way to get peak Influenza season in the middle of the year rather than spread over two calendar years. 
 
 # load ILINet -------------------------------------------------------------
@@ -164,7 +164,6 @@ D100K <- c(D100K, deframe(data.frame(missing, NA)))
 D100K <- D100K[names(pop)]
 D <- D100K*pop/1e5
 #D["District of Columbia"] <- 453
-
 
 ### Old Scale Factors based on number of providers reported by CDC in ILINet
 #scale_factor <- matrix(NA, length(regions_to_model), max(ili_select$flu_week))
@@ -410,8 +409,6 @@ contains_val_bool <- function(x, val){
   return(rep(FALSE, length(x)))
 }
 
-
-
 # Checks val are on upswing (no more than  downswings of greater than run days)
 # assume x are ordered by time -- does not consider breaks/missing values in time
 upswing_bool <- function(x){
@@ -554,6 +551,215 @@ Y_predict_summary %>%
         axis.title.x = element_blank()) +
   ggtitle("New York State")
 ggsave("figures/ncov_signal_extraction_new_york.png", height=5, width=7, units="in")
+
+
+
+foo <- Y_ncov_summary %>% 
+  bind_rows(.,.id="REGION") %>% 
+  ungroup() %>% 
+  #filter(p.positive > .95) %>% 
+  #mutate(week = X_test[1,X_index_for_test][date]) %>% 
+  mutate(week = date) %>% 
+  group_by(REGION) %>% 
+  arrange(week) %>% 
+  #filter(last_consecutive_bool(week, gap_allowance = 1)) %>% 
+  #filter(contains_val_bool(week, c(33:50))) %>% 
+  #filter(upswing_bool(mean)) %>% 
+  ungroup()%>% 
+  mutate(date = CDC_date[test_idxs][date]) %>% 
+  filter(REGION %in% c("New York", "Louisiana", "Washington", "Iowa")) %>% 
+  left_join(foo_prop, by=c("REGION", "date")) %>% 
+  left_join(foo_prop_nonflu, by=c("REGION", "date")) %>% 
+  filter(date > ymd("2019-11-01")) %>% 
+  mutate(REGION = factor(REGION, levels =c("New York", "Louisiana", "Washington", "Iowa")))
+
+
+ggplot(foo, aes(x=date)) +
+  geom_ribbon(aes(ymin=p2.5, ymax=p97.5), fill="grey", alpha=0.4) +
+  geom_ribbon(aes(ymin=p25, ymax=p75), fill="grey", alpha=0.5) +
+  geom_line(aes(y=p50, color="Non-Seasonal Non-Influenza ILI")) +
+  geom_line(aes(y=ili, color="ILI")) +
+  geom_line(aes(y=non_influenza_ili, color="Non-Influenza ILI")) +
+  geom_line(data = filter(foo, date >= ymd("2020-03-08")), aes(y=p50, color="Non-Seasonal Non-Influenza ILI"), size=1.5)+
+  facet_wrap(~REGION) +
+  ylab("Proportion of Outpatient Visits\nto Sentinel Providers") +
+  theme_bw() + 
+  coord_cartesian(ylim=c(0, NA)) +
+  scale_color_brewer(palette="Set1") +
+  scale_x_date(date_breaks = "1 week", date_labels = "%b %d") +
+  theme(legend.title = element_blank(), 
+        legend.position="bottom", 
+        axis.title.x=element_blank(), 
+        axis.text.x=element_text(angle=90, hjust=1))
+ggsave("figures/four_state_highlight_figure.pdf", height=7, width=10, units="in")
+
+# Compare to results without extracting flu -------------------------------
+
+Y_ncov_full_scaled_wflu_summary <- list() # these variable names are getting worse every day (sorry :)
+
+for (r in regions_to_model){
+  Y_train <- rbind(Y[r,train_idxs,drop=F], 
+                   Y_total[r,train_idxs,drop=F] - Y[r,train_idxs,drop=F])
+  Y_test <- (Y[r,test_idxs]/Y_total[r,test_idxs])
+  if (all(is.na(Y_train))) next
+  if (all(is.na(Y_test))) next
+  not_na_idx_test_tmp <- which(!is.na(Y_test))
+  not_na_idxs_test <- which( (X_test[1,] >= min(not_na_idx_test_tmp)) &  (X_test[1,] <= max(not_na_idx_test_tmp)) )
+  rm(not_na_idx_test_tmp)
+  not_na_idxs_train <- which(!is.na(Y_train[1,]))
+  
+  Y_train <- Y_train[,not_na_idxs_train]
+  rownames(Y_train) <- c("ILI", "NotILI")
+  X_train <- X[,train_idxs,drop=F]
+  X_train <- X_train[,not_na_idxs_train,drop=F]
+  upsilon <- 1
+  Theta <- function(X) return(matrix(Logit(.001), 1,ncol(X)))
+  Xi <- matrix(1) 
+  fit <- basset(Y_train, X_train, upsilon, Gamma=Gamma, Xi=Xi, Theta=Theta, n_samples=4000)
+  X_test_tmp <- X_test[,not_na_idxs_test,drop=F]
+  Y_predict <- predict(fit, X_test_tmp, summary=FALSE, response="Eta")
+  Y_predict <- invLogit(Y_predict)
+  X_index_for_test_comparison <- (X_test_tmp %% 1 ==0) & (X_test_tmp <= length(test_idxs))
+  foo <- which(!is.na(Y_test))
+  Y_test_tmp <- Y_test[min(foo):max(foo)]
+  Y_ncov <- -sweep(Y_predict[,X_index_for_test_comparison,,drop=F], c(2,3), Y_test_tmp, FUN=`-`)
+  tmp <- (Y_ncov[1,,]*scale_factor[r,test_idxs[min(foo):max(foo)],]) %>% 
+    gather_array(val, date, iter) %>%
+    mutate(date = (min(foo):max(foo))[date]) %>% 
+    filter(!is.na(val))
+  Y_ncov_full_scaled_wflu_summary[[r]] <- tmp %>% 
+    mutate(positive = val>0) %>% 
+    group_by(date) %>% 
+    summarise(p2.5 = quantile(val, prob=0.025), 
+              p25 = quantile(val, prob=0.25),
+              p50 = quantile(val, prob=0.50),
+              p75 = quantile(val, prob=0.75),
+              p97.5 = quantile(val, prob=0.975),
+              mean = mean(val), 
+              p.positive = sum(positive)/n())
+}
+
+br <- which(CDC_date[test_idxs] == ymd("2020-03-08"))
+
+noflu <- Y_ncov_full_scaled_summary %>% 
+  bind_rows(.,.id="REGION") %>% 
+  ungroup() %>% 
+  mutate(week = date) %>% 
+  group_by(REGION) %>% 
+  arrange(week) %>% 
+  filter(week >= br) %>% 
+  ungroup() %>% 
+  mutate(week = CDC_date[test_idxs][week]) %>% 
+  select(REGION, p2.5:p97.5, week) %>% 
+  mutate(p2.5 = pmax(0, p2.5))
+
+flu <- Y_ncov_full_scaled_wflu_summary %>% 
+  bind_rows(.,.id="REGION") %>% 
+  ungroup() %>% 
+  mutate(week = date) %>% 
+  group_by(REGION) %>% 
+  arrange(week) %>% 
+  filter(week >= br) %>% 
+  ungroup() %>% 
+  mutate(week = CDC_date[test_idxs][week])  %>% 
+  mutate(p2.5 = pmax(0, p2.5))
+
+full_join(noflu, flu, by=c("REGION", "week"), suffix=c(".noflu", ".flu")) %>% 
+  ggplot(aes(x=p50.noflu, y=p50.flu)) +
+  geom_segment(x=0, y=0, xend=3e+5, yend=3e+5, color="red") +
+  geom_point() +
+  geom_linerange(aes(xmin=p2.5.noflu, xmax=p97.5.noflu), alpha=0.7) +
+  geom_linerange(aes(ymin=p2.5.flu, ymax=p97.5.flu), alpha=0.7) +
+  #coord_cartesian(xlim=c(0, NA), ylim=c(0, NA)) +
+  theme_bw() +
+  ylab("Non-Seasonal ILI") +
+  xlab("Non-Seasonal Non-Influenza ILI")
+ggsave("figures/sensitivity_withflu.pdf", height=5, width=5, units="in")
+
+
+# Compare to results with "simple model" -------------------------------
+
+Y_ncov_full_scaled_simple_summary <- list() # these variable names are getting worse every day (sorry :)
+
+for (r in regions_to_model){
+  Y_train <- rbind(Y[r,train_idxs,drop=F], 
+                   Y_total[r,train_idxs,drop=F] - Y[r,train_idxs,drop=F])
+  Y_test <- (Y[r,test_idxs]/Y_total[r,test_idxs])
+  if (all(is.na(Y_train))) next
+  if (all(is.na(Y_test))) next
+  not_na_idx_test_tmp <- which(!is.na(Y_test))
+  not_na_idxs_test <- which( (X_test[1,] >= min(not_na_idx_test_tmp)) &  (X_test[1,] <= max(not_na_idx_test_tmp)) )
+  rm(not_na_idx_test_tmp)
+  not_na_idxs_train <- which(!is.na(Y_train[1,]))
+  
+  Y_train <- Y_train[,not_na_idxs_train]
+  rownames(Y_train) <- c("ILI", "NotILI")
+  X_train <- X[,train_idxs,drop=F]
+  X_train <- X_train[,not_na_idxs_train,drop=F]
+  upsilon <- 1
+  Theta <- function(X) return(matrix(Logit(.001), 1,ncol(X)))
+  Xi <- matrix(1) 
+  fit <- basset(Y_train, X_train, upsilon, Gamma=Gamma, Xi=Xi, Theta=Theta, n_samples=4000)
+  X_test_tmp <- X_test[,not_na_idxs_test,drop=F]
+  Y_predict <- predict(fit, X_test_tmp, summary=FALSE, response="Eta")
+  Y_predict <- invLogit(Y_predict)
+  X_index_for_test_comparison <- (X_test_tmp %% 1 ==0) & (X_test_tmp <= length(test_idxs))
+  foo <- which(!is.na(Y_test))
+  Y_test_tmp <- Y_test[min(foo):max(foo)]
+  Y_ncov <- -sweep(Y_predict[,X_index_for_test_comparison,,drop=F], c(2,3), Y_test_tmp, FUN=`-`)
+  tmp <- (Y_ncov[1,,]*scale_factor[r,test_idxs[min(foo):max(foo)],]) %>% 
+    gather_array(val, date, iter) %>%
+    mutate(date = (min(foo):max(foo))[date]) %>% 
+    filter(!is.na(val))
+  Y_ncov_full_scaled_simple_summary[[r]] <- tmp %>% 
+    mutate(positive = val>0) %>% 
+    group_by(date) %>% 
+    summarise(p2.5 = quantile(val, prob=0.025), 
+              p25 = quantile(val, prob=0.25),
+              p50 = quantile(val, prob=0.50),
+              p75 = quantile(val, prob=0.75),
+              p97.5 = quantile(val, prob=0.975),
+              mean = mean(val), 
+              p.positive = sum(positive)/n())
+}
+
+br <- which(CDC_date[test_idxs] == ymd("2020-03-08"))
+
+noflu <- Y_ncov_full_scaled_summary %>% 
+  bind_rows(.,.id="REGION") %>% 
+  ungroup() %>% 
+  mutate(week = date) %>% 
+  group_by(REGION) %>% 
+  arrange(week) %>% 
+  filter(week >= br) %>% 
+  ungroup() %>% 
+  mutate(week = CDC_date[test_idxs][week]) %>% 
+  select(REGION, p2.5:p97.5, week) %>% 
+  mutate(p2.5 = pmax(0, p2.5))
+
+flu <- Y_ncov_full_scaled_wflu_summary %>% 
+  bind_rows(.,.id="REGION") %>% 
+  ungroup() %>% 
+  mutate(week = date) %>% 
+  group_by(REGION) %>% 
+  arrange(week) %>% 
+  filter(week >= br) %>% 
+  ungroup() %>% 
+  mutate(week = CDC_date[test_idxs][week])  %>% 
+  mutate(p2.5 = pmax(0, p2.5))
+
+full_join(noflu, flu, by=c("REGION", "week"), suffix=c(".noflu", ".flu")) %>% 
+  ggplot(aes(x=p50.noflu, y=p50.flu)) +
+  geom_segment(x=0, y=0, xend=3e+5, yend=3e+5, color="red") +
+  geom_point() +
+  geom_linerange(aes(xmin=p2.5.noflu, xmax=p97.5.noflu), alpha=0.7) +
+  geom_linerange(aes(ymin=p2.5.flu, ymax=p97.5.flu), alpha=0.7) +
+  #coord_cartesian(xlim=c(0, NA), ylim=c(0, NA)) +
+  theme_bw() +
+  ylab("Non-Seasonal ILI") +
+  xlab("Non-Seasonal Non-Influenza ILI")
+ggsave("figures/sensitivity_withflu.pdf", height=5, width=5, units="in")
+
 
 
 # Plot how this excess ILI compares to confirmed cases  -------------------
