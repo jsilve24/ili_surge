@@ -475,6 +475,7 @@ labels <- c(CDC_date[test_idxs],
                           (last_week$MMWRweek+1):(last_week$MMWRweek+53-ntest)))
 breaks <- breaks[seq(1,53,by=5)]
 labels <- labels[seq(1,53,by=5)]
+labels <- format(labels, format="%b %d")
 Y_predict_summary %>% 
   bind_rows(.,.id="REGION") %>% 
   #filter(REGION == r) %>% 
@@ -553,45 +554,52 @@ Y_predict_summary %>%
 ggsave("figures/ncov_signal_extraction_new_york.png", height=5, width=7, units="in")
 
 
-
-foo <- Y_ncov_summary %>% 
+tmp <- Y_ncov_summary %>% 
   bind_rows(.,.id="REGION") %>% 
   ungroup() %>% 
-  #filter(p.positive > .95) %>% 
-  #mutate(week = X_test[1,X_index_for_test][date]) %>% 
   mutate(week = date) %>% 
   group_by(REGION) %>% 
   arrange(week) %>% 
-  #filter(last_consecutive_bool(week, gap_allowance = 1)) %>% 
-  #filter(contains_val_bool(week, c(33:50))) %>% 
-  #filter(upswing_bool(mean)) %>% 
-  ungroup()%>% 
-  mutate(date = CDC_date[test_idxs][date]) %>% 
-  filter(REGION %in% c("New York", "Louisiana", "Washington", "Iowa")) %>% 
-  left_join(foo_prop, by=c("REGION", "date")) %>% 
-  left_join(foo_prop_nonflu, by=c("REGION", "date")) %>% 
-  filter(date > ymd("2019-11-01")) %>% 
-  mutate(REGION = factor(REGION, levels =c("New York", "Louisiana", "Washington", "Iowa")))
+  ungroup()
 
-
-ggplot(foo, aes(x=date)) +
-  geom_ribbon(aes(ymin=p2.5, ymax=p97.5), fill="grey", alpha=0.4) +
-  geom_ribbon(aes(ymin=p25, ymax=p75), fill="grey", alpha=0.5) +
-  geom_line(aes(y=p50, color="Non-Seasonal Non-Influenza ILI")) +
-  geom_line(aes(y=ili, color="ILI")) +
-  geom_line(aes(y=non_influenza_ili, color="Non-Influenza ILI")) +
-  geom_line(data = filter(foo, date >= ymd("2020-03-08")), aes(y=p50, color="Non-Seasonal Non-Influenza ILI"), size=1.5)+
+focus_fn <- function(x, filter_date=TRUE, inv_filter_date=FALSE) {
+  br <- which(CDC_date[test_idxs] == ymd("2020-03-08"))
+  focus <- c("New York", "Louisiana", "Washington", "Iowa")
+  x <- x %>% 
+    filter(REGION %in% focus) %>% 
+    mutate(REGION = factor(REGION, levels = focus)) 
+  if (filter_date) return(filter(x, week >= br))
+  if (inv_filter_date) return(filter(x, week <= br))
+  return(x)
+}
+Y_predict_summary %>% 
+  bind_rows(.,.id="REGION") %>% 
+  mutate(week = date) %>%
+  focus_fn(filter_date=FALSE) %>% 
+  ggplot(aes(x=week, y=mean)) +
+  geom_line(data =  focus_fn(Y_nonflu_train_tidy, FALSE), aes(group=flu_year), alpha=0.3) +
+  geom_ribbon(aes(ymin=p2.5, ymax=p97.5), fill="darkgrey", alpha=0.5) +
+  geom_ribbon(aes(ymin=p25, ymax=p75), fill="darkgrey", alpha=0.7) +
+  geom_line(alpha=0.8, color="black")+
+  geom_line(data= focus_fn(Y_test_tidy, FALSE), color="red") +
+  geom_ribbon(data=focus_fn(tmp, FALSE, TRUE), aes(ymin=p25, ymax=p75), fill="blue", alpha=0.2) +
+  geom_line(data=focus_fn(tmp, FALSE, TRUE), color="blue", alpha=.3) +
+  geom_ribbon(data=focus_fn(tmp), aes(ymin=p25, ymax=p75), fill="blue", alpha=0.6) +
+  geom_line(data=focus_fn(tmp), color="blue", alpha=.8) +
+  #geom_line(data=Y_flu_test_tidy, color="green") +
   facet_wrap(~REGION) +
-  ylab("Proportion of Outpatient Visits\nto Sentinel Providers") +
-  theme_bw() + 
-  coord_cartesian(ylim=c(0, NA)) +
-  scale_color_brewer(palette="Set1") +
-  scale_x_date(date_breaks = "1 week", date_labels = "%b %d") +
-  theme(legend.title = element_blank(), 
-        legend.position="bottom", 
-        axis.title.x=element_blank(), 
-        axis.text.x=element_text(angle=90, hjust=1))
-ggsave("figures/four_state_highlight_figure.pdf", height=7, width=10, units="in")
+  theme_bw() +
+  ylab("Non-Influenza ILI Proportion") + 
+  scale_x_continuous(breaks=breaks, labels=labels) +
+  theme(axis.text.x=element_text(size=7, angle=90, hjust=1), 
+        axis.text.y=element_text(size=7),
+        strip.text.x = element_text(size=9), 
+        axis.title.x = element_blank(), 
+        axis.title.y=element_text(size=9), 
+        panel.grid.minor = element_blank()) 
+ggsave("figures/ncov_signal_extraction_4_states.pdf", height=4, width=7.3, units="in")
+
+
 
 # Compare to results without extracting flu -------------------------------
 
