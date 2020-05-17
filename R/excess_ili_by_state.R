@@ -176,21 +176,7 @@ D <- D100K*pop/1e5
 # 
 # scale_factor %>%  apply(3, function(X) colSums(X, na.rm=TRUE)) %>% colMeans %>% summary
 
- ### New Scale Factors
- 
-# Quantile match a beta distribution to physicianfoundation.org data
-# quantile_match_gamma<- function(pars){
-#   pars <- exp(pars)
-#   ps <- c(18.1, 40.0, 27.6, 8.6, 2.6, 1.3, 1.8)/100
-#   qs <- cumsum(ps)
-#   qs <- qgamma(qs, pars[1], pars[2])
-#   abs(qs[1] - 10) + abs(qs[2] - 20) + abs(qs[3] - 30) + abs(qs[4] - 40) +
-#     abs(qs[5] - 50) + abs(qs[6] - 60)
-# }
-# res <- optim(c(5,1), quantile_match_gamma)
-# pars <- exp(res$par)
-# rgamma(10000, pars[1], pars[2]) %>% ecdf %>% plot ## Looks good
-# rgamma(10000, pars[1], pars[2]) %>% mean()
+### New Scale Factors
 physician_activity_rate = 0.55
 scale_factor <- array(NA, dim=c(length(regions_to_model), max(ili_select$flu_week), 4000))
 rownames(scale_factor) <- regions_to_model
@@ -310,7 +296,6 @@ X_test <- rbind(seq(1,52,by=.25))
 X_index_for_test <- (X_test %% 1 ==0) & (X_test <= length(test_idxs))
 
 Gamma <- function(X) SE(X, sigma=1, rho=3)
-# Gamma <- function(X) RQ(X, .5, sigma=1, rho=3)
 Y_predict_summary <- list()
 Y_ncov_summary <- list()
 Y_ncov_full_scaled <- list() # these variable names are getting worse every day (sorry :)
@@ -398,50 +383,22 @@ Y_nonflu_train_tidy <- (Y_nonflu/Y_total)[,train_idxs] %>%
   mutate(flu_year = as.numeric(unlist(      map(str_split(names(flu_year_week[train_idxs]), "_"), ~.x[1])     ))[date]) %>%  
   mutate(REGION = regions_to_model[REGION])
 
-last_consecutive_bool <- function(x, gap_allowance=1){
-  gaps <- which(diff(x)>gap_allowance+1)
-  if (length(gaps)==0) return(rep(TRUE, length(x)))
-  c(rep(FALSE, max(gaps)), rep(TRUE, length(x)-max(gaps)))
-}
-
-contains_val_bool <- function(x, val){
-  if (any(x %in% val)) return(rep(TRUE, length(x)))
-  return(rep(FALSE, length(x)))
-}
-
-# Checks val are on upswing (no more than  downswings of greater than run days)
-# assume x are ordered by time -- does not consider breaks/missing values in time
-upswing_bool <- function(x){
-  if (length(x) < 2) return(rep(TRUE, length(x)))
-  out <- rep(TRUE, length(x))
-  ma <- function(x, r) stats::filter(x, rep(1/r, r))
-  dx = lead(x)-x
-  madx <- ma(dx, 2)
-  madx[is.na(madx)] <- 0
-  if (all(madx< 0)) return(rep(FALSE, length(x)))
-  foo <- which(madx < 0)
-  if (length(foo)==0) return(rep(TRUE, length(x)))
-  start <- max(foo)+1
-  out[1:(start-1)] <- FALSE
-  return(out)
-}
-
 
 br <- which(CDC_date[test_idxs] == ymd("2020-02-02"))
 Y_ncov_summary_tidy <- Y_ncov_summary %>% 
   bind_rows(.,.id="REGION") %>% 
   ungroup() %>% 
-  #filter(p.positive > .95) %>% 
-  #mutate(week = X_test[1,X_index_for_test][date]) %>% 
   mutate(week = date) %>% 
   group_by(REGION) %>% 
   arrange(week) %>% 
-  #filter(last_consecutive_bool(week, gap_allowance = 1)) %>% 
-  #filter(contains_val_bool(week, c(33:50))) %>% 
-  #filter(upswing_bool(mean)) %>% 
   filter(week >= br) %>% 
   ungroup()
 
+# Get statistics for New York
+Y_ncov_summary_tidy %>% 
+  filter(REGION=="New York") %>% 
+  mutate(date = CDC_date[test_idxs][week]) %>% 
+  filter(date==ymd("2020-03-22"))
 
 Y_ncov_summary_tidy  %>% 
   select(REGION, week, p2.5:p97.5, mean, p.positive) %>% 
@@ -452,14 +409,9 @@ Y_ncov_summary_tidy  %>%
 Y_ncov_full_scaled_summary %>% 
   bind_rows(.,.id="REGION") %>% 
   ungroup() %>% 
-  #filter(p.positive > .95) %>% 
-  #mutate(week = X_test[1,X_index_for_test][date]) %>% 
   mutate(week = date) %>% 
   group_by(REGION) %>% 
   arrange(week) %>% 
-  # filter(last_consecutive_bool(week, gap_allowance = 1)) %>% 
-  # filter(contains_val_bool(week, c(33:50))) %>% 
-  # filter(upswing_bool(mean)) %>% 
   filter(week >= br) %>% 
   ungroup() %>% 
   mutate(week = CDC_date[test_idxs][week]) %>% 
@@ -472,23 +424,22 @@ ntest <- length(test_idxs)
 breaks <- 1:53
 labels <- c(CDC_date[test_idxs],
             MMWRweek2Date(rep(2020, 53-ntest),
-                          (last_week$MMWRweek+1):(last_week$MMWRweek+53-ntest)))
+                          (last_week$MMWRweek+1):(last_week$MMWRweek+53-ntest))) 
 breaks <- breaks[seq(1,53,by=5)]
 labels <- labels[seq(1,53,by=5)]
 labels <- format(labels, format="%b %d")
 Y_predict_summary %>% 
   bind_rows(.,.id="REGION") %>% 
-  #filter(REGION == r) %>% 
   mutate(week = date) %>%
   filter(!(REGION %in% c("Maine", "Vermont") & week < 10)) %>% 
   ggplot(aes(x=week, y=mean)) +
-  geom_ribbon(aes(ymin=p2.5, ymax=p97.5), color="grey", alpha=0.3) +
-  geom_ribbon(aes(ymin=p25, ymax=p75), color="grey", alpha=0.5) +
+  #geom_ribbon(aes(ymin=p2.5, ymax=p97.5), color="grey", alpha=0.3) +
+  #geom_ribbon(aes(ymin=p25, ymax=p75), color="grey", alpha=0.5) +
   geom_path(data = Y_nonflu_train_tidy, aes(group=flu_year), alpha=0.2, lwd=.5) +
-  geom_line(lwd=.5)+
+  #geom_line(lwd=.5)+
   geom_line(data=Y_test_tidy, color="red", lwd=.5) +
-  #geom_linerange(data=Y_ncov_summary_tidy, aes(ymin=p25, ymax=p75), color="blue", alpha=0.5) +
   geom_ribbon(data=Y_ncov_summary_tidy, aes(ymin=p25, ymax=p75), fill="blue", alpha=0.4) +
+  geom_ribbon(data=Y_ncov_summary_tidy, aes(ymin=p2.5, ymax=p97.5), fill="blue", alpha=0.4) +
   geom_line(data=Y_ncov_summary_tidy, color="blue", alpha=.7) +
   #geom_line(data=Y_flu_test_tidy, color="green") +
   facet_wrap(~REGION, scales="free_y", ncol=5) +
@@ -506,7 +457,8 @@ Y_predict_summary %>%
         legend.text=element_text(size=5), 
         legend.title=element_text(size=7), 
         panel.grid.minor = element_blank()) +
-  ylim(c(0, NA))
+  coord_cartesian(ylim=c(0, NA))
+  #ylim(c(0, NA))
 ggsave("figures/ncov_signal_extraction.pdf", height=9, width=7, units="in")
 
 
@@ -578,13 +530,15 @@ Y_predict_summary %>%
   focus_fn(filter_date=FALSE) %>% 
   ggplot(aes(x=week, y=mean)) +
   geom_line(data =  focus_fn(Y_nonflu_train_tidy, FALSE), aes(group=flu_year), alpha=0.3) +
-  geom_ribbon(aes(ymin=p2.5, ymax=p97.5), fill="darkgrey", alpha=0.5) +
-  geom_ribbon(aes(ymin=p25, ymax=p75), fill="darkgrey", alpha=0.7) +
+  #geom_ribbon(aes(ymin=p2.5, ymax=p97.5), fill="darkgrey", alpha=0.5) +
+  #geom_ribbon(aes(ymin=p25, ymax=p75), fill="darkgrey", alpha=0.7) +
   geom_line(alpha=0.8, color="black")+
   geom_line(data= focus_fn(Y_test_tidy, FALSE), color="red") +
   geom_ribbon(data=focus_fn(tmp, FALSE, TRUE), aes(ymin=p25, ymax=p75), fill="blue", alpha=0.2) +
+  geom_ribbon(data=focus_fn(tmp, FALSE, TRUE), aes(ymin=p2.5, ymax=p97.5), fill="blue", alpha=0.2) +
   geom_line(data=focus_fn(tmp, FALSE, TRUE), color="blue", alpha=.3) +
   geom_ribbon(data=focus_fn(tmp), aes(ymin=p25, ymax=p75), fill="blue", alpha=0.6) +
+  geom_ribbon(data=focus_fn(tmp), aes(ymin=p2.5, ymax=p97.5), fill="blue", alpha=0.6) +
   geom_line(data=focus_fn(tmp), color="blue", alpha=.8) +
   #geom_line(data=Y_flu_test_tidy, color="green") +
   facet_wrap(~REGION) +
@@ -596,9 +550,9 @@ Y_predict_summary %>%
         strip.text.x = element_text(size=9), 
         axis.title.x = element_blank(), 
         axis.title.y=element_text(size=9), 
-        panel.grid.minor = element_blank()) 
+        panel.grid.minor = element_blank())  +
+  coord_cartesian(ylim=c(0, NA))
 ggsave("figures/ncov_signal_extraction_4_states.pdf", height=4, width=7.3, units="in")
-
 
 
 # Compare to results without extracting flu -------------------------------
@@ -1062,6 +1016,8 @@ ggsave("figures/PrevalanceEstimatesStates.pdf", plot=p, height=8, width=5, units
 p + ggtitle("ILI based SARS-CoV-2 Prevalence Estimates", "estimates from confirmed case counts in grey")
 ggsave("figures/PrevalanceEstimatesStates_twitter.png", height=8, width=5, units="in")
 
+foo %>% 
+  filter(State=="New York")
 
 
 # Number of excess ILI cases
