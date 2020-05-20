@@ -738,6 +738,14 @@ us_confirmed_tidy <- read_csv("data/covid-19-data/us-states.csv") %>%
   mutate(State=state) %>% 
   filter(state %in% regions_to_model)
 
+us_confirmed_tidy %>% 
+  filter(state=="New York") %>% 
+  filter(date == ymd("2020-03-28")) %>% 
+  pull(cases) -> foo 
+  (foo)/19450000*100
+
+
+
 us_new_confirmed_tidy <- us_confirmed_tidy %>%
   pad(group="State") %>%
   group_by(State) %>% 
@@ -954,6 +962,14 @@ quantile_match_beta <- function(pars){
 }
 res <- optim(c(1,1), quantile_match_beta)
 
+
+# calculate subclinical factor with uncertainty bounds
+delta_b <- rbeta(100000, exp(res$par[1]), exp(res$par[2]))
+delta_c <- runif(100000, 0.39, 0.41)
+scrate <- (1-0.6)*(1-delta_b)
+quantile(scrate, probs=c(0.025, .5, 0.975))
+
+
 tmp <- Y_ncov_full_scaled %>%
   map(~mutate(.x, date = CDC_date[test_idxs][date])) %>%
   bind_rows(.id="State") %>%
@@ -961,7 +977,7 @@ tmp <- Y_ncov_full_scaled %>%
   group_by(date, iter) %>%
   summarize(us_val = sum(val),
             delta_b = rbeta(1, exp(res$par[1]), exp(res$par[2])), 
-            delta_c = .60) %>% # 70% don't show up to doctor
+            delta_c = .60) %>% # 60% don't show up to doctor
   ungroup()
 
 
