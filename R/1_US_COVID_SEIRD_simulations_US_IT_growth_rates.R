@@ -9,6 +9,7 @@ library(ggpubr)
 library(truncnorm)
 library(adaptivetau)
 library(mgcv)
+library(zoo)
 
 
 
@@ -16,7 +17,6 @@ library(mgcv)
 # growth rate estimation --------------------------------------------------
 
 X <- read.csv('data/covid-19-data/covid-19-data/us-states.csv',stringsAsFactors = F) %>% as.data.table
-
 X[,deaths:=c(deaths[1],diff(deaths)),by=state]
 
 
@@ -37,10 +37,10 @@ ggplot(Y,aes(date,deaths))+
   scale_y_continuous(trans='log')
 
 setkey(Y,date)
-Y <- Y[date>as.Date('2020-03-04')]
+Y <- Y[date>as.Date('2020-03-05') & date<=as.Date('2020-04-05')]
 fit_national <- glm(deaths~date,family=poisson,data=Y)
 glm(fit_national)
-# plot(fit_national) ## points 29-31 have high levereage - they will be removed
+plot(fit_national) ## points 29-31 have high levereage - they will be removed
 Y <- Y[1:28,]
 
 fit_national <- glm(deaths~date,family=poisson,data=Y)
@@ -54,113 +54,88 @@ sd_national <- 0.01
 # US_SEIR sim -------------------------------------------------------------
 
 
-SEIR <- function(t,state,parameters){
-  with(as.list(c(state,parameters)),{
-    dS=zeta-beta*S*I-omega_b*S
-    dE=beta*S*I-p*E-omega_b*E
-    dI=p*E-w*I-n*I
-    dR=n*I-omega_b*R
-    
-    list(c(dS, dE, dI, dR))
-  })
-}
-
-GillespiEpi <- function(r,incubation_period=3,recovery_time=10,max_val=1e2,maxT=50,
-                        S0=3.27e8,omega_b=8.685/100000/365,omega_i=1.1*omega_b){
-  
-  c=(r+1/10+omega_i) ## ratio of I/E that ensures exponential growth at rate r
-  n=1/recovery_time
-  #expected growth in d(I+E)/dt=(beta-gamma)*I
-  # beta=c*(r+1/incubation_period+omega_i)/S0
-  p=1/incubation_period
-  c=(r+n+omega_i)/p
-  beta=c*(r+n+p)/S0
-  zeta=omega_b*S0
-  
-  
-  z <- data.table('E'=0,'I'=1,'R'=0,'time'=0)
-  
-  
-  while((z[.N]$E+z[.N]$I)<max_val & z[.N]$time<maxT){
-    
-    propensities <- c('Exposure'=beta*z[.N,I]*S0,
-                      'Infection'=p*z[.N]$E,
-                      'Recovery'=n*z[.N]$I)
-    
-    if (z[.N]$I==1 & z[.N]$E==0){
-      dt <- rexp(1,sum(propensities[1:2]))
-      event <- sample(names(propensities)[1:2],size=1,prob=propensities[1:2])
-    } else {
-      dt <- rexp(1,sum(propensities))
-      event <- sample(names(propensities),size=1,prob=propensities)
-    }
-    if (event=='Exposure'){
-      z <- rbind(z,z[.N]+c(1,0,0,dt))
-    } else if (event=='Infection'){
-      z <- rbind(z,z[.N]+c(-1,1,0,dt))
-    } else {
-      z <- rbind(z,z[.N]+c(0,-1,1,dt))
-    }
+US_SEIRD_tl <- function(r=log(2)/3,cfr=0.004,S0=3.27e8,start_date=as.Date('2020-01-15'),
+                     lag_onset_to_death=20,tf=200){
+  ####### Functions
+  seirDRates <- function(x,params,t){
+    return(c(params$lambda,
+             params$beta*x['S']*x['I'],
+             params$p*x['E'],
+             params$n*x['I'],
+             params$m*x['S'],
+             params$m*x['E'],
+             params$m*x['I'],
+             params$m_inf*x['I'],
+             params$m*x['R']))
   }
-  return(z)
-}
-
-US_SEIR <- function(r){
-  zz <- GillespiEpi(r=r)
-  zz[,S:=3.27e8-I]
-  zz[,day:=ceiling(time)]
-  t0=zz[.N,time]
-  I0=zz[.N,I]
-  E0=zz[.N,E]
-  S0=zz[.N,S]
-  state <- c('S'=S0,'E'=E0,'I'=I0,'R'=0)
-  times <- seq(t0, 200, by = 0.01)
-  alpha=1.1
+  transitions <- list('Birth'=c('S'=1),
+                      'Exposure'=c('S'=-1,'E'=1),
+                      'Infection'=c('E'=-1,'I'=1),
+                      'Recovery'=c('I'=-1,'R'=1),
+                      'Sdeath'=c('S'=-1),
+                      'Edeath'=c('E'=-1),
+                      'Ideath'=c('I'=-1),
+                      'IDdeath'=c('I'=-1,'D'=1),
+                      'Rdeath'=c('R'=-1))
+  ########## Simulation #################
+  
+  
+  init.values <- c('S'=S0,'E'=0,'I'=1,'R'=0,'D'=0)
+  times <- seq(0, 200, by = 0.01)
+  m=8.685/100000/365
   n=1/10
-  # c=(r+n+omega_i)/p ## ratio of I/E that ensures exponential growth at rate r
-  
-  #expected growth in d(I+E)/dt=(beta-gamma)*I
-  # beta=c*(r+1/incubation_period+omega_i)/S0
   p=1/3
-  # c=(r+n)/p
-  omega_b <- 8.685/100000/365 ## baseline mortality rate
-  omega_i <- 1.1*omega_b      ## infected/symptomatic mortality rate
-  c=(r+n+omega_i)/p
-  beta=c*(r+n+p)/S0
-  zeta=11.8/1000/365
-  parameters <- c('omega_b'=omega_b,
-                  'zeta'=zeta,
-                  'n'=n,
-                  'p'=p,
-                  'beta'=beta,
-                  'w'=omega_i)
   
-  out <- ode(y = state, times = times, func = SEIR, parms = parameters) %>% as.data.table
+  m_inf <- cfr*n/(1-cfr)
+  alpha=m_inf/m
+  m_inf=m_inf-m
+  
+  
+  # alpha=1.1
+  c=(r+n+alpha*m)/p
+  beta=c*(r+n+p)/S0
+  lambda=11.8/1000/365
+  
+  params <- as.list(c('lambda'=lambda,
+                      'm'=m,
+                      'm_inf'=m_inf,
+                      'beta'=beta,
+                      'n'=n,
+                      'p'=p))
+  
+  out <- ssa.adaptivetau(init.values,transitions,seirDRates,params,tf) %>% as.data.table
+  while(max(out$I)<1e3){ ## ensures non-extinction
+    out <- ssa.adaptivetau(init.values,transitions,seirDRates,params,tf) %>% as.data.table
+  }
   out[,day:=ceiling(time)]
   
-  zz <- rbind(zz[,c('time','day','S','E','I','R')],
-              out[,c('time','day','S','E','I','R')])
-  zz <- zz[,list(S=S[.N],
-                 E=E[.N],
-                 I=I[.N],
-                 R=R[.N]),by=day]
-  return(zz)
+  out <- out[,list(S=S[.N],
+                   E=E[.N],
+                   I=I[.N],
+                   R=R[.N],
+                   D=D[.N]),by=day]
+  out[,date:=start_date+day]
+  out[,new_infections:=beta*S*I]
+  out[,D:=shift(D,lag_onset_to_death)]
+  out[is.na(D),D:=0]
+  out[,new_deaths:=c(0,diff(D))]
+  return(out)
 }
 
-
-# Uniform growth rate simulations -----------------------------------------
+# US death rate sims -----------------------------------------
 
 set.seed(1)
 n_sims <- 2e3
 n_cores <- 7
 r_set <- rnorm(n_sims,gr_national,sd_national)
 cl <- makeCluster(n_cores)
-clusterExport(cl,varlist=c('SEIR','GillespiEpi','US_SEIR'))
+clusterExport(cl,varlist=c('US_SEIRD_tl'))
 clusterEvalQ(cl,{library(data.table)
   library(deSolve)
-  library(magrittr)})
+  library(magrittr)
+  library(adaptivetau)})
 
-US_seir_forecasts <- parLapply(cl,r_set,US_SEIR)
+US_seir_forecasts <- parLapply(cl,r_set,US_SEIRD_tl)
 stopCluster(cl)
 rm('cl')
 
@@ -212,12 +187,13 @@ n_sims <- 2e3
 n_cores <- 7
 r_set <- rnorm(n_sims,gr_italy,sd_national)
 cl <- makeCluster(n_cores)
-clusterExport(cl,varlist=c('SEIR','GillespiEpi','US_SEIR'))
+clusterExport(cl,'US_SEIRD_tl')
 clusterEvalQ(cl,{library(data.table)
   library(deSolve)
-  library(magrittr)})
+  library(magrittr)
+  library(adaptivetau)})
 
-US_seir_forecasts <- parLapply(cl,r_set,US_SEIR)
+US_seir_forecasts <- parLapply(cl,r_set,US_SEIRD_tl)
 stopCluster(cl)
 rm('cl')
 
@@ -257,12 +233,13 @@ r_min <- log(2)/max_doubling_time
 r_set <- r_min+runif(n_sims)*(r_max-r_min)
 
 cl <- makeCluster(n_cores)
-clusterExport(cl,varlist=c('SEIR','GillespiEpi','US_SEIR'))
+clusterExport(cl,'US_SEIRD_tl')
 clusterEvalQ(cl,{library(data.table)
   library(deSolve)
-  library(magrittr)})
+  library(magrittr)
+  library(adaptivetau)})
 
-US_seir_forecasts <- parLapply(cl,r_set,US_SEIR)
+US_seir_forecasts <- parLapply(cl,r_set,US_SEIRD_tl)
 stopCluster(cl)
 rm('cl')
 
@@ -283,7 +260,3 @@ US_seir_forecasts <- US_seir_forecasts[date_map]
 US_seir_forecasts[,weekly_I:=rollapply(I,sum,fill=NA,align='left',w=7),by=replicate]
 saveRDS(US_seir_forecasts,file='results/US_seir_forecasts_unifgr.Rd')
 write.csv(US_seir_forecasts,file='results/US_seir_forecasts_unifgr.csv')
-
-
-
-

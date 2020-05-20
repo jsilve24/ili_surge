@@ -45,7 +45,7 @@ ILI[,date:=as.Date(date)]
 ili <- ILI[,c('date','mean')]
 ili[,scaled:=FALSE]
 
-ili_scaled <- read.csv('results/US_total_weekly_excess_ili_with_subclinical_with_behavior.csv',stringsAsFactors = F) %>% 
+ili_scaled <- read.csv('results/US_total_weekly_excess_ili_with_subclinical.csv',stringsAsFactors = F) %>% 
   as.data.table
 ili_scaled[,date:=as.Date(date)]
 ili_scaled[,scaled:=TRUE]
@@ -67,6 +67,15 @@ b=glm(deaths~new_deaths+0,data=yy)$coefficients
 cfr <- as.numeric(0.005/b)
 seir <- US_SEIRD(r,cfr=cfr)
 seir[,weekly_I:=rollapply(I,FUN=sum,w=7,align='left',fill=NA)]
+
+
+
+lag_onset_to_ili <- 4
+setkey(US,replicate,date)
+US[,weekly_I:=shift(weekly_I,n=lag_onset_to_ili),by=replicate]
+setkey(seir,date)
+seir[,weekly_I:=shift(weekly_I,n=lag_onset_to_ili)]
+
 ili <- ili[date>as.Date('2020-03-01')]
 # ili[date==as.Date('2020-03-01'),mean:=seir[date==as.Date('2020-03-01')]$weekly_I]  ### 
 setkey(seir,date)
@@ -81,12 +90,13 @@ i2 <- cbind(ili[scaled==FALSE,c('date','mean')],ili_sc[,c('mean_scaled','weekly_
 seir[,replicate:=15002]
 i2[,replicate:=15003]
 
+
 ggplot(US[date<as.Date('2020-04-07')],
        aes(date,weekly_I/7,by=factor(replicate)))+
   geom_line(alpha=0.04)+
   geom_line(data=seir[date<as.Date('2020-04-07')],aes(date,weekly_I/7),lwd=2,alpha=1,col='red',lty=2)+
   geom_line(data=seir[date<=max(Y$date)],aes(date,new_deaths),alpha=1)+
-  geom_ribbon(data=ili[scaled==TRUE],aes(ymin=mean/7,ymax=weekly_I/7),alpha=0.8,fill=cols[4])+
+  geom_ribbon(data=ili[scaled==TRUE],aes(x=date,ymin=mean/7,ymax=weekly_I/7),alpha=0.8,fill=cols[4])+
   geom_ribbon(data=i2,aes(ymin=mean/7,ymax=mean_scaled/7),fill=rgb(0,0.1,0.5),alpha=0.8)+
   geom_point(data=Y,aes(date,deaths),alpha=1,pch=4,cex=3)+
   geom_point(data=ili[scaled==FALSE & date>as.Date('2020-03-01')],aes(date,mean/7),alpha=1,pch=19,cex=6,col=cols[2])+
@@ -130,9 +140,28 @@ seir <- US_SEIRD(r,cfr=cfr)
 seir[,weekly_I:=rollapply(I,FUN=sum,w=7,align='left',fill=NA)]
 
 
-ili[date==as.Date('2020-03-01'),mean:=seir[date==as.Date('2020-03-01')]$weekly_I]  ### 
+# ili[date==as.Date('2020-03-01'),mean:=seir[date==as.Date('2020-03-01')]$weekly_I]  ### 
+# setkey(seir,date)
+# setkey(ili,date)
+# ili$weekly_I <- NULL
+# ili <- ili[seir[,c('date','weekly_I')]]
+# ili_sc <- ili[scaled==TRUE]
+# names(ili_sc)[3] <- 'mean_scaled'
+# i2 <- cbind(ili[scaled==FALSE,c('date','mean')],ili_sc[,c('mean_scaled','weekly_I')])
+# 
+# 
+# seir[,replicate:=15002]
+# i2[,replicate:=15003]
+# 
+lag_onset_to_ili <- 4
+setkey(US,replicate,date)
+US[,weekly_I:=shift(weekly_I,n=lag_onset_to_ili),by=replicate]
 setkey(seir,date)
+seir[,weekly_I:=shift(weekly_I,n=lag_onset_to_ili)]
+
+ili <- ili[date>as.Date('2020-03-01')]
 setkey(ili,date)
+
 ili$weekly_I <- NULL
 ili <- ili[seir[,c('date','weekly_I')]]
 ili_sc <- ili[scaled==TRUE]
@@ -152,9 +181,9 @@ ggplot(US[date<as.Date('2020-04-07')],
   geom_line(data=seir[date<as.Date('2020-04-07')],aes(date,weekly_I/7),lty=2,lwd=2,alpha=1,col='red')+
   geom_line(data=seir[date<=max(Y$date)],aes(date,new_deaths),alpha=1)+
   geom_point(data=Y,aes(date,deaths),alpha=1,pch=4,cex=3)+
-  geom_ribbon(data=ili[date>as.Date('2020-03-01') & scaled==TRUE],aes(ymin=mean/7,ymax=weekly_I/7),alpha=0.8,fill=cols[4])+
+  geom_ribbon(data=ili[scaled==TRUE],aes(ymin=mean/7,ymax=weekly_I/7),alpha=0.8,fill=cols[4])+
   geom_ribbon(data=i2[date>as.Date('2020-03-01')],aes(ymin=mean/7,ymax=mean_scaled/7),fill=rgb(0,0.1,0.5),alpha=0.8)+
-  geom_point(data=ili[date>as.Date('2020-03-01') & scaled==FALSE & date>as.Date('2020-03-01')],aes(date,mean/7),alpha=1,pch=18,cex=6,col=cols[2])+
+  geom_point(data=ili[date>as.Date('2020-03-01') & scaled==FALSE & date>as.Date('2020-03-01')],aes(date,mean/7),alpha=1,pch=19,cex=6,col=cols[2])+
   geom_line(data=ili[date>as.Date('2020-03-01') & scaled==FALSE],aes(date,mean/7),alpha=1,lwd=1.5,col=cols[2])+
   geom_point(data=ili[date>as.Date('2020-03-01') & scaled==TRUE & date>as.Date('2020-03-01')],aes(date,mean/7),alpha=1,pch=18,cex=6,col=cols[3])+
   geom_line(data=ili[date>as.Date('2020-03-01') & scaled==TRUE],aes(date,mean/7),alpha=1,lwd=1.5,col=cols[3])+
@@ -267,5 +296,84 @@ Excess_ILI <- ILI[date==as.Date('2020-03-08'),mean]
 X = US[date==as.Date('2020-03-04'),
        list(clinical_rate=Excess_ILI/weekly_I),by=GrowthRate]
 X[,sum(clinical_rate<1)]/nrow(X)
-#90%
-X[clinical_rate<1,mean(clinical_rate)] ## average 23% clinical rate for simulations capable of explaining surge
+#85.4%
+X[clinical_rate<1,mean(clinical_rate)] ## average 29.6% clinical rate for simulations capable of explaining surge
+
+
+
+# IFR ---------------------------------------------------------------------
+
+ILI <- read.csv('results/US_total_weekly_excess_ili_no_subclinical.csv',stringsAsFactors = F) %>% as.data.table
+ILI_adjusted <- read.csv('results/US_total_weekly_excess_ili_with_subclinical.csv') %>% as.data.table
+Y <- read.csv('data/covid-19-data/covid-19-data/us.csv',stringsAsFactors = F) %>% as.data.table
+Y[,date:=as.Date(date)]
+ILI[,date:=as.Date(date)]
+
+ili_end_date<- as.Date('2020-03-28')
+ili_start_date <- min(ILI$date)
+lag <- 14
+
+
+ifr_calculator <- function(lagtime,ILI.=ILI,ILI_adjusted.=ILI_adjusted,Y.=Y,percent=TRUE){
+  deaths_tot <- Y[date>=(ili_start_date+lagtime) & date<=(ili_end_date+lagtime),deaths[.N]-deaths[1]]
+  
+  ifr_unadjusted <- (1+99*percent)*deaths_tot/colSums(ILI[,setdiff(colnames(ILI),'date'),with=F]) %>% t %>% as.data.table
+  ifr_unadjusted[,lag:=lagtime]
+  ifr_unadjusted[,ILI:='unadjusted']
+  
+  ifr_adjusted <- (1+99*percent)*deaths_tot/colSums(ILI_adjusted[,setdiff(colnames(ILI_adjusted),'date'),with=F]) %>% t %>% as.data.table
+  ifr_adjusted[,lag:=lagtime]
+  ifr_adjusted[,ILI:='adjusted']
+  
+  ifr <- rbind(ifr_adjusted,ifr_unadjusted)
+  
+  colnames(ifr)[c(1,2,5,6)] <- colnames(ifr)[c(6,5,2,1)]  #convert 2.5 to 97.5 and 25 to 75
+  return(ifr)
+}
+
+
+lags <- 5:25
+IFR <- lapply(lags,ifr_calculator) %>% rbindlist
+cols=viridis::magma(5)
+g1=ggplot(IFR[ILI=='unadjusted'],aes(lag,p50))+
+  geom_ribbon(aes(ymin=p2.5,ymax=p97.5),fill=cols[2],alpha=0.1)+
+  geom_ribbon(aes(ymin=p25,ymax=p75),fill=cols[2],alpha=0.5)+
+  geom_line(lwd=2,col=cols[2])+
+  geom_point(pch=19,cex=6,col=cols[2])+
+  scale_y_continuous('IFR')+
+  ggtitle('IFR from unadjusted ILI')+
+  scale_x_continuous('Lag from ILI to death')
+
+
+g2=ggplot(IFR[ILI=='adjusted'],aes(lag,p50))+
+  geom_ribbon(aes(ymin=p2.5,ymax=p97.5),fill=cols[3],alpha=0.1)+
+  geom_ribbon(aes(ymin=p25,ymax=p75),fill=cols[3],alpha=0.5)+
+  geom_line(lwd=2,col=cols[3])+
+  geom_point(pch=18,cex=6,col=cols[3])+
+  scale_y_continuous('IFR')+
+  ggtitle('IFR from adjusted ILI')+
+  scale_x_continuous('Lag from ILI to death')
+
+ggarrange(g1,g2,nrow=1,ncol=2)
+
+
+A <- IFR[ILI=='unadjusted']
+B <- IFR[ILI=='adjusted']
+
+colnames(B) <- paste('adj',colnames(B),sep='_')
+
+C <- cbind(A,B)
+ggplot(C,aes(lag,p50))+
+  geom_ribbon(aes(ymin=p2.5,ymax=p97.5),fill=cols[2],alpha=0.15)+
+  geom_ribbon(aes(ymin=p25,ymax=p75),fill=cols[2],alpha=0.5)+
+  geom_line(lwd=2,col=cols[2])+
+  geom_point(pch=19,cex=6,col=cols[2])+
+  geom_ribbon(aes(ymin=adj_p2.5,ymax=adj_p97.5),fill=cols[3],alpha=0.15)+
+  geom_ribbon(aes(ymin=adj_p25,ymax=adj_p75),fill=cols[3],alpha=0.5)+
+  geom_line(aes(lag,adj_p50),lwd=2,col=cols[3])+
+  geom_point(aes(lag,adj_p50),pch=18,cex=6,col=cols[3])+
+  scale_y_continuous('IFR (%)',breaks=seq(0.1,1.5,by=0.2))+
+  ggtitle('Infection fatality rate from ILI')+
+  scale_x_continuous('Lag from ILI to death')+
+  theme_bw(base_size = 25)
+ggsave('figures/IFR_estimation.png',height=7,width=7,units='in')
