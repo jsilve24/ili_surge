@@ -890,7 +890,7 @@ tmp %>%
   #ylab("Probability of SARS-CoV2 detection given patient has ILI due to SARS-CoV2") +
   ylab("Syndromic Case Detection Rate") +
   theme_bw() +
-  scale_x_date(date_breaks="week", limits = c(ymd("2020-01-19"), max(CDC_date[test_idxs]))) +
+  scale_x_date(date_breaks="week", limits = c(ymd("2020-03-7"), max(CDC_date[test_idxs]))) +
   theme(axis.text.x = element_text(angle=90, hjust=1), 
         axis.title.x = element_blank(), 
         legend.position = "bottom",
