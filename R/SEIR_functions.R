@@ -19,7 +19,7 @@ US_SEIRD <- function(r,cfr=0.004,S0=3.27e8,start_date=as.Date('2020-01-15'),
   state <- c('S'=S0,'E'=0,'I'=1,'R'=0,'D'=0)
   times <- seq(0, 200, by = 0.01)
   m=8.685/100000/365
-  n=1/10
+  n=1/9
   p=1/3
 
   m_inf <- cfr*n/(1-cfr)
@@ -82,7 +82,7 @@ US_SEIRD_tl <- function(r=log(2)/3,cfr=0.004,S0=3.27e8,start_date=as.Date('2020-
   init.values <- c('S'=S0,'E'=0,'I'=1,'R'=0,'D'=0)
   times <- seq(0, 200, by = 0.01)
   m=8.685/100000/365
-  n=1/10
+  n=1/9
   p=1/3
   
   m_inf <- cfr*n/(1-cfr)

@@ -273,20 +273,19 @@ ggsave('figures/Clinical_rate_v_Doubling_time_by_delay.png',height=14,width=6,un
 
 
 
-r_us <- 0.2299108 
+r_us <- 0.2281528 
 r_italy <- 0.2614756
 CR <- clinical_rate_calculator(time_onset_to_doc = 1)  ## assume 1-day lag from onset of infectiousness to doc visit
-CR$fit %>% predict(newdata=data.frame('GrowthRate'=r_us)) %>% exp
-CR$fit %>% predict(newdata=data.frame('GrowthRate'=r_italy)) %>% exp
+CR$fit %>% predict(newdata=data.frame('GrowthRate'=r_us)) %>% exp #0.1173668
+CR$fit %>% predict(newdata=data.frame('GrowthRate'=r_italy)) %>% exp #0.01999188
 
-CR <- clinical_rate_calculator(time_onset_to_doc = 4)  ## assume 1-day lag from onset of infectiousness to doc visit
-CR$fit %>% predict(newdata=data.frame('GrowthRate'=r_us)) %>% exp
-CR$fit %>% predict(newdata=data.frame('GrowthRate'=r_italy)) %>% exp
+CR <- clinical_rate_calculator(time_onset_to_doc = 4)  ## assume 4-day lag from onset of infectiousness to doc visit
+CR$fit %>% predict(newdata=data.frame('GrowthRate'=r_us)) %>% exp ##0.2572403
+CR$fit %>% predict(newdata=data.frame('GrowthRate'=r_italy)) %>% exp ##0.04776107
 
 
 
 # What % of r_us sims have cr<1 for 4 day lag -----------------------------
-
 
 US <- readRDS('results/US_seir_forecasts_USgr.Rd')
 ILI <- read.csv('results/US_total_weekly_excess_ili_no_subclinical.csv',stringsAsFactors = F) %>% as.data.table
@@ -296,9 +295,15 @@ Excess_ILI <- ILI[date==as.Date('2020-03-08'),mean]
 X = US[date==as.Date('2020-03-04'),
        list(clinical_rate=Excess_ILI/weekly_I),by=GrowthRate]
 X[,sum(clinical_rate<1)]/nrow(X)
-#85.4%
-X[clinical_rate<1,mean(clinical_rate)] ## average 29.6% clinical rate for simulations capable of explaining surge
+#87.2%
+X[clinical_rate<1,mean(clinical_rate)] ## average 25.4% clinical rate for simulations capable of explaining surge
 
+### 5 day lag?
+X = US[date==as.Date('2020-03-03'),
+       list(clinical_rate=Excess_ILI/weekly_I),by=GrowthRate]
+X[,sum(clinical_rate<1)]/nrow(X)
+#83.65%
+X[clinical_rate<1,mean(clinical_rate)] # 0.2942572
 
 
 # IFR ---------------------------------------------------------------------
